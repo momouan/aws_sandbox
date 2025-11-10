@@ -1,0 +1,45 @@
+- hosts: leader
+  become: true
+  gather_facts: false
+  vars:
+    kubeconfig: /home/ubuntu/.kube/config
+    helm_version: "v3.15.3"
+
+  tasks:
+    - name: Install Helm binary
+    # downloads and installs helm under /usr/local/bin/helm
+      ansible.builtin.shell: |
+        set -e
+        cd /tmp
+        curl -fsSL https://get.helm.sh/helm-{{ helm_version }}-linux-amd64.tar.gz -o helm.tgz
+        tar xzf helm.tgz
+        install -m 0755 linux-amd64/helm /usr/local/bin/helm
+      args:
+        creates: /usr/local/bin/helm
+
+    - name: Add Helm repos (ingress-nginx, metrics-server)
+      become_user: ubuntu
+      environment: { KUBECONFIG: "{{ kubeconfig }}" }
+      ansible.builtin.shell: |
+        helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
+        helm repo add metrics-server https://kubernetes-sigs.github.io/metrics-server/
+        helm repo update
+
+    - name: Deploy ingress-nginx
+      become_user: ubuntu
+      environment: { KUBECONFIG: "{{ kubeconfig }}" }
+      ansible.builtin.shell: >
+        helm upgrade --install ingress-nginx ingress-nginx/ingress-nginx
+        --namespace ingress-nginx --create-namespace
+        --version 4.11.2
+        --set controller.service.type=LoadBalancer
+
+    - name: Deploy metrics-server via Helm
+      become_user: ubuntu
+      environment: { KUBECONFIG: "{{ kubeconfig }}" }
+      ansible.builtin.shell: >
+        helm upgrade --install metrics-server metrics-server/metrics-server
+        --namespace kube-system
+        --version 3.12.2
+        --set args[0]=--kubelet-preferred-address-types=InternalIP
+        --set args[1]=--kubelet-insecure-tls
